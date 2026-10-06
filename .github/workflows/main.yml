@@ -162,9 +162,12 @@ jobs:
       if: matrix.win7
       shell: pwsh
       run: |
-        $bytes = [IO.File]::ReadAllBytes("build\${{ matrix.configuration }}\BunnymodXT.dll")
-        $text = [Text.Encoding]::Latin1.GetString($bytes)
-        if ($text -match 'api-ms-win-core-synch-l1-2') {
+        $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+        $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC" -Recurse -Filter dumpbin.exe |
+          Where-Object FullName -like '*Hostx64\x64*' | Select-Object -First 1
+        $deps = & $dumpbin.FullName /dependents "build\${{ matrix.configuration }}\BunnymodXT.dll"
+        $deps
+        if ($deps -match 'api-ms-win-core-synch-l1-2') {
           Write-Error "BunnymodXT.dll imports api-ms-win-core-synch-l1-2 (WaitOnAddress), not available on Windows 7"
           exit 1
         }
