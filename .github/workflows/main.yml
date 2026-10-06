@@ -91,7 +91,7 @@ jobs:
         cache: false
 
   build-windows:
-    name: Build on Windows (${{ matrix.configuration }}, COF=${{ matrix.cof }})
+    name: Build on Windows (${{ matrix.configuration }}, COF=${{ matrix.cof }}, Win7=${{ matrix.win7 }})
     runs-on: windows-2022
 
     strategy:
@@ -99,6 +99,7 @@ jobs:
       matrix:
         configuration: [Release, Debug]
         cof: ['OFF', 'ON']
+        win7: [false]
 
         include:
           - cof: 'OFF'
@@ -107,6 +108,20 @@ jobs:
           - cof: 'ON'
             artifact-label: '-CoFSteam'
             archive-filename: '3-BunnymodXT-CoFSteam-Windows.7z'
+
+          # Rust 1.78+ std imports WaitOnAddress/WakeByAddress*, which don't exist on Windows 7.
+          # 1.77.2 is the last release that loads them dynamically.
+          - configuration: Release
+            cof: 'OFF'
+            win7: true
+            artifact-label: '-Win7'
+            archive-filename: '4-BunnymodXT-Windows-Win7.7z'
+
+          - configuration: Release
+            cof: 'ON'
+            win7: true
+            artifact-label: '-CoFSteam-Win7'
+            archive-filename: '5-BunnymodXT-CoFSteam-Windows-Win7.7z'
 
     steps:
     - uses: actions/checkout@v7
@@ -120,9 +135,11 @@ jobs:
     - run: git fetch --force --tags
 
     - name: Install Rust
+      env:
+        RUST_TOOLCHAIN: ${{ matrix.win7 && '1.77.2' || 'stable' }}
       run: |
-        rustup toolchain install stable --profile minimal
-        rustup override set stable
+        rustup toolchain install $env:RUST_TOOLCHAIN --profile minimal
+        rustup override set $env:RUST_TOOLCHAIN
         rustup target add i686-pc-windows-msvc
 
     - name: Install Boost
@@ -140,6 +157,17 @@ jobs:
 
     - name: Build
       run: cmake --build build --config ${{ matrix.configuration }} -j $env:NUMBER_OF_PROCESSORS
+
+    - name: Check for imports missing on Windows 7
+      if: matrix.win7
+      shell: pwsh
+      run: |
+        $bytes = [IO.File]::ReadAllBytes("build\${{ matrix.configuration }}\BunnymodXT.dll")
+        $text = [Text.Encoding]::Latin1.GetString($bytes)
+        if ($text -match 'api-ms-win-core-synch-l1-2') {
+          Write-Error "BunnymodXT.dll imports api-ms-win-core-synch-l1-2 (WaitOnAddress), not available on Windows 7"
+          exit 1
+        }
 
     - uses: actions/upload-artifact@v7
       with:
